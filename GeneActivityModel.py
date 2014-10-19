@@ -3,6 +3,7 @@ sys.path.insert(0,'/ahg/regev/users/bcleary/src/lib/python2.7/site-packages/')
 import numpy as np
 import sktensor as sk
 from collections import defaultdict
+from operator import itemgetter
 import itertools
 from scipy.sparse.linalg import svds
 from scipy.sparse import csr_matrix
@@ -15,7 +16,32 @@ def tissue_ids(tissue_file):
 	f.close()
 	return T
 
-# need to support RNA-Seq only here...quantile normalize within tissues and all that
+def ensemble_dict(fp):
+	f = open(fp)
+	header = f.readline()
+	EnsembleIds = {}
+	for line in f:
+		ls = line.strip().split()
+		EnsembleIds[ls[0]] = ls[1]
+	f.close()
+	return EnsembleIds
+
+def expression_vector(fp,Tissues,EnsembleIds):
+	f = open(fp)
+	header = f.readline().strip().split()
+	Cidx = [header.index(tissueid) for tissueid in Tissues]
+	E = [defaultdict(float) for _ in Tissues]
+	for line in f:
+		ls = line.strip().split()
+		gene = EnsembleIds.get(ls[0],None)
+		for i,colidx in enumerate(Cidx):
+			expression = float(ls[colidx])
+			if expression > 0:
+				E[i][gene] = expression
+	f.close()
+	E = [sorted(e.iteritems(),key=itemgetter(1)) for e in E]
+	return [dict([(x[0],100.*i/len(e)) for i,x in enumerate(e)]) for e in E]
+
 # chr start end strand gene chr start end state overlap_len
 def gene_chromhmm_states(fp):
 	GeneState = defaultdict(float)
@@ -75,32 +101,45 @@ def expand_tfs_polynomial(subs,vals,shape,tf_labels,enh_mode=0,tf_mode=1,tissue_
 	return newSubs,newVals,tf_labels+newTFs
 
 # Should consider a model with nonnegative weights, inverse binding scores, so forth...
-def regression_svd(subs,vals,shape,enh_mode=0,tf_mode=1,kmax=10000):
+def regression_input(subs,vals,shape,enh_mode=0,tf_mode=1):
 	S = sk.sptensor(subs,vals,shape=shape)
 	# constant enhancer weights...not so good maybe
 	We = np.ones(S.shape[enh_mode])
 	if enh_mode < tf_mode:
 		tf_mode -= 1
-	S = S.ttv(We,modes=[enh_mode]).unfold(tf_mode).tocsr()
-	u,s,vt = svds(S,k=min(min(S.shape),kmax)-1)
-	return S,u,s
+	S = S.ttv(We,modes=[enh_mode])
+	return S.toarray()
 
-def truncated_inverse(u,s,k):
-	s = np.diag(1/s[-k:])
-	return np.dot(np.dot(u[:,-k:],s),u.T[-k:]).T
+def smooth_expression(e,k=30,q=4):
+	return e**q/(k**q + e**q)
 
-def truncated_regression_solution(S,Zinv,GeneTissueState,gene_labels):
+def regression_response(ExpressionVector,gene_labels):
 	gene_labels = list(gene_labels)
 	geneDict = dict([(g,i) for i,g in enumerate(gene_labels)])
-	Y = np.zeros((1,len(GeneTissueState),len(gene_labels)))
-	for i,GT in enumerate(GeneTissueState):
-		for gene,state in GT.iteritems():
+	Y = np.zeros((len(ExpressionVector),len(gene_labels)))
+	for i,E in enumerate(ExpressionVector):
+		for gene,quantile in E.iteritems():
 			if gene in geneDict:
-				Y[0,i,geneDict[gene]] = state
-	Y = sk.dtensor(Y).unfold(0).transpose()
-	# seems to lose sparsity during dot here...
-	SZ = S.T.dot(Zinv.T).T
-	return np.dot(SZ,Y)
+				Y[i,geneDict[gene]] = smooth_expression(quantile)
+	return Y
+
+def truncated_inverse(X,thresh=.0001):
+	u,s,vt = np.linalg.svd(X,full_matrices=False)
+	s = s[(s**2 > (s**2).sum()*thresh)]
+	k = len(s)
+	if s[0] > s[-1]:
+		return np.dot(np.dot(vt.T[:,:k],np.diag(s**-1)),vt[:k]).T
+	else:
+		return np.dot(np.dot(vt.T[:,-k:],np.diag(s**-1)),vt[-k:]).T
+
+def regression_solution(S,Y,tf_mode=0,gene_mode=2):
+	W = np.zeros((S.shape[gene_mode],S.shape[tf_mode]))
+	for i in range(S.shape[gene_mode]):
+		# maybe can go straight to dense...
+		X = S[:,:,i].T
+		Xinv = truncated_inverse(X)
+		W[i] = Xinv.dot(X.T).dot(Y[:,i])
+	return W
 
 def eliminate_elements(subs,vals,labels,mode,tissue_mode=2,num_tissues=None,minMaxPercentile=0.5):
 	if num_tissues == None:
@@ -144,7 +183,7 @@ def eliminate_elements(subs,vals,labels,mode,tissue_mode=2,num_tissues=None,minM
 #chrom_path = '/ahg/regevdata/users/bcleary/MotifAnalysis/data/ChromHMM/'
 if __name__ == "__main__":
 	try:
-		opts, args = getopt.getopt(sys.argv[1:],'f:t:s:c:o:',["outfile="])
+		opts, args = getopt.getopt(sys.argv[1:],'e:t:s:c:f:o:',["outfile="])
 	except:
 		print help_message
 		sys.exit(2)
@@ -155,7 +194,12 @@ if __name__ == "__main__":
 			chrom_path = arg
 		elif opt in ('-o'):
 			outfile = arg
+		elif opt in ('-f'):
+			ensembleid_file = arg
+		elif opt in ('-e'):
+			expression_file = arg
 	Tissues = tissue_ids(tissue_file)
+	EnsembleIds = ensemble_dict(ensembleid_file)
 	tf_labels = np.load(outfile + '.bindingDistance.tf_labels.npy')
 	subs = np.load(outfile + '.bindingDistance.subs.npy')
 	vals = np.load(outfile + '.bindingDistance.vals.npy')
@@ -167,12 +211,9 @@ if __name__ == "__main__":
 	np.save(outfile + '.bindingDistance.TFexpanded.tf_labels.npy',newTF_labels)
 	shape = tuple([max(s)+1 for s in newSubs])
 	newSubs = tuple(newSubs)
-	S,u,s = regression_svd(newSubs,newVals,shape)
-	np.save(outfile + '.regressionModel.svd.u.npy',u)
-	np.save(outfile + '.regressionModel.svd.s.npy',s)
-	GeneTissueStates = [gene_chromhmm_states('%s/%s.tss.bed' % (chrom_path,t)) for t in Tissues]
+	S = regression_input(newSubs,newVals,shape)
+	ExpressionValues = expression_vector(expression_file,Tissues,EnsembleIds)
 	gene_labels = np.load(outfile + '.bindingDistance.gene_labels.npy')
-	for k in [10,100,1000,5000,10000]:
-		StSinv = truncated_inverse(u,s,k)
-		Wtf = truncated_regression_solution(S,StSinv,GeneTissueStates,gene_labels)
-		np.save(outfile + '.regressionModel.Wtf.%d.npy' % k,Wtf)
+	Y = regression_response(ExpressionValues,gene_labels)
+	W = regression_solution(S,Y)
+	np.save(outfile + '.regressionModel.Wtf.npy',W)

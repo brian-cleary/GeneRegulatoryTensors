@@ -86,7 +86,7 @@ def distance_score(score,distance):
 	if distance > -1:
 		return score/np.arcsinh((distance+1.)/500)
 	else:
-		return score/np.arcsinh(abs(distance)+1.)
+		return score/np.arcsinh(abs(distance))
 
 def reduce_to_nonzero_indices(original_idx,labels):
 	if isinstance(labels,dict):

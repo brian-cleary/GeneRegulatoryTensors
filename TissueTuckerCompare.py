@@ -83,7 +83,7 @@ def tucker_tissue(subs,vals,shape,InvertedUnfoldedCore,E,TF,Gene):
 	A = S.ttm(E.T,0).ttm(TF.T,1).ttm(Gene.T,3).unfold(2)
 	return np.dot(InvertedUnfoldedCore.T,A.T)
 
-def tissue_diff_by_mode(core,U,mode=1,tissue_mode=2):
+def tissue_diff_by_mode(core,U,mode=1,tissue_mode=2,block=1000):
 	# U = [E,TF,TissueDiff,Gene]
 	# U[tissue_mode].shape should be eg (1,20)
 	remaining_modes = np.setdiff1d(range(len(U)),(mode,tissue_mode))
@@ -94,15 +94,15 @@ def tissue_diff_by_mode(core,U,mode=1,tissue_mode=2):
 	idx[mode] = 0
 	idx[tissue_mode] = 0
 	D = np.zeros(U[mode].shape[0])
-	core_tissue = core.ttm(U[tissue_mode],tissue_mode)
+	core_tissue_mode = core.ttm(U[tissue_mode],tissue_mode).ttm(U[mode],mode)
 	for i in xrange(U[mode].shape[0]):
-		X = core_tissue.ttm(U[mode][i:i+1],mode)
-		X = X[idx]
+		idx[mode] = i
+		X = core_tissue_mode[idx]
 		if smallest_mode[0] > remaining_modes:
 			X = X.T
 		X = np.dot(X,U[remaining_modes].T).T
-		for j in xrange(Dshape[smallest_mode[1]]):
-			d = np.dot(X,U[smallest_mode[0]][j:j+1].T)
+		for j in xrange(0,Dshape[smallest_mode[1]],block):
+			d = np.dot(X,U[smallest_mode[0]][j:j+block].T)
 			D[i] += difference_measure(d)
 	return D
 

@@ -187,7 +187,7 @@ def plot_pr(tf,n,thresh):
 	pylab.show()
 
 
-#expression_file = '/broad/compbio/zhizhuo/projects/enhancer_study/result/2014-03-07/3a/57epigenomes.RPKM.pc'
+#expression_file = '/ahg/regevdata/users/bcleary/MotifAnalysis/data/57epigenomes.RPKM.pc'
 #ensembleid_file = '/ahg/regevdata/users/bcleary/MotifAnalysis/data/EnsemblIDToGene.txt'
 #tf_file = '/ahg/regevdata/users/bcleary/MotifAnalysis/data/tflist.txt'
 #tissue_file = '/ahg/regevdata/users/bcleary/MotifAnalysis/data/tissue_list.txt'

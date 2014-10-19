@@ -44,6 +44,7 @@ def parse_bed(fp,TF,score_thresh=.65):
 					tf = ls[6][:ls[6].index('_')]
 					motif_start = int(ls[4])
 					motif_end = int(ls[5])
+					# should keep track of individual binding positions, then sum in gene activity model...
 					if (tf,i - 8) in last_tf_position:
 						last_pos,last_score = last_tf_position[(tf,i - 8)]
 						if (len(set(range(motif_start,motif_end)) & last_pos) > 0):

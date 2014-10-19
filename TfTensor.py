@@ -8,7 +8,7 @@ from collections import defaultdict
 def apply_tf_weights(subs,vals,Wtf,tf_mode=1):
 	return vals*Wtf[subs[tf_mode]]
 
-def eliminate_elements(subs,vals,labels,mode,tissue_mode=2,num_tissues=None,minMaxPercentile=0.25):
+def eliminate_elements(subs,vals,labels,mode,tissue_mode=2,num_tissues=None,minMaxPercentile=0.60):
 	if num_tissues == None:
 		num_tissues = max(subs[tissue_mode])+1
 	num_mode = len(labels)
@@ -18,7 +18,7 @@ def eliminate_elements(subs,vals,labels,mode,tissue_mode=2,num_tissues=None,minM
 	TissueElementPercentiles = np.zeros(TissueElementSums.shape)
 	for i,t in enumerate(TissueElementSums):
 		nnz = np.nonzero(t)[0]
-		xs = np.argsort(t[nnz])
+		xs = np.argsort(abs(t[nnz]))
 		for rank,idx in enumerate(xs):
 			TissueElementPercentiles[i,nnz[idx]] = rank/float(len(nnz))
 	MaxPercentiles = TissueElementPercentiles.max(0)
@@ -66,7 +66,7 @@ if __name__ == "__main__":
 			outfile = arg
 	subs = np.load(outfile + '.bindingDistance.TFexpanded.subs.npy')
 	vals = np.load(outfile + '.bindingDistance.TFexpanded.vals.npy')
-	Wtf = np.load(outfile + '.regressionModel.Wtf.5000.npy')
+	Wtf = np.load(outfile + '.regressionModel.Wtf.100.npy')
 	Wtf = Wtf[:,0]
 	WtfVals = apply_tf_weights(subs,vals,Wtf)
 	del vals
@@ -89,6 +89,7 @@ if __name__ == "__main__":
 	np.save(outfile + '.finalModel.gene_labels.npy',newGeneLabels)
 	
 	shape = tuple([max(s)+1 for s in newSubs])
+	newSubs = tuple(newSubs)
 	print 'shape of tensor:',shape
 	print 'number of elements:',len(newVals)
 	print 'rank:',rank
